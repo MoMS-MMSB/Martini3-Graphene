@@ -3,38 +3,42 @@ from MDAnalysis.lib.distances import calc_angles, calc_bonds, calc_dihedrals
 import numpy as np
 import argparse
 import math
+from MDAnalysis import transformations
 
 # Argument Parser
 parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--output", type=str, default='martini_graphene',
                     help='Name of the output, default = martini_graphene')
+parser.add_argument("-x", "--xlength", type=float,
+                    help='dimension along x in nm')
+                    
+parser.add_argument("-y", "--ylength", type=float,
+                    help='dimension along y in nm')
+parser.add_argument("-z", "--zlength", type=float,
+                    help='dimension along z in nm')
 
 args = parser.parse_args()
 
 output = args.output
+xlength = args.xlength
+ylength = args.ylength
+zlength = args.zlength
 
+rows = int(round(ylength/0.2217))
+raw_columns = int(round(xlength/0.256))
+if (rows >=3) and (rows % 2 != 0):
+    rows = rows
+else:
+    rows = rows +1
 
-while True:
-    rows = int(input(
-        "Enter the number of rows, make sure that it is odd, and greater than 3: "))
-    if (rows >= 3) and (rows % 2 != 0):
-        # the correct input was entered, so we break out of the loop
-        break
-    else:
-        # the incorrect input was entered, so we continue the loop
-        continue
-
-
-while True:
-    raw_columns = int(input(
-        "Enter the number of beads across a row, make sure that it is a multiple of 3: "))
-    if (raw_columns % 3 == 0):
-        columns = raw_columns - 1
-        break
-    else:
-        columns = raw_columns
-    # the incorrect input was entered, so we continue the loop
-        continue
+if (raw_columns % 3 == 0):
+    columns = raw_columns - 1
+else:
+    n = 0
+    while (raw_columns % 3 != 0):
+        raw_columns = raw_columns +1
+        n = n +1
+    columns = raw_columns - 1
 
 
 #----------------#
@@ -83,6 +87,18 @@ w.add_TopologyAttr('names')
 w.atoms.names = [f'B{i}' for i in range(1, w.atoms.n_atoms+1)]
 w.add_TopologyAttr('resnames')
 w.residues.resnames = ['GRA']
+d = np.unique(w.atoms.positions[:,1])
+x_atom1 = w.atoms[w.atoms.positions[:,1] == d[1]][0]
+x_atom2 = w.atoms[w.atoms.positions[:,1] == d[1]][-1]
+y_atom1 = w.atoms[w.atoms.positions[:,1] == d[0]][0]
+y_atom2 = w.atoms[w.atoms.positions[:,1] == d[-2]][0]
+dim = [calc_bonds(x_atom1.position, x_atom2.position) + 0.24595 * 10,  calc_bonds(y_atom1.position, y_atom2.position) + 0.2130*2*10, zlength*10, 90, 90, 90]
+w.trajectory.add_transformations(transformations.boxdimensions.set_dimensions(dim))
+dim = w.trajectory.ts.triclinic_dimensions
+box_center = np.sum(dim, axis = 0)/2
+w.atoms.translate(box_center - w.atoms.select_atoms('resname GRA').center_of_geometry())
+w.atoms.write(output+'.gro')
+
 w.atoms.write(output+'.gro')
 
 
