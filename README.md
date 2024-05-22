@@ -1,6 +1,6 @@
 # Martini 3 model of Graphene
 <p align="center">
-<img src="drawing_all_bonds.svg">
+<img src="drawing_graphene.png" width="300">
 </p>
 
 Generates a Martini 3 model of both finite and infinite graphene sheet for running the molecular dynamics simulation with the Gromacs simulation package. The script outputs both the structure file (.gro) and a topology file (.itp).
