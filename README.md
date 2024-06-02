@@ -17,10 +17,7 @@ Python 3 with packages argparse, math, sys, numpy, MDAnalysis. The requirements 
 
 For generating the structure and topology of a finite graphene sheet, run
  ```python
-    
-   
-
-    python martini3-graphene-topology.py -x [Length of the graphene sheet along x in nm] \
+   python martini3-graphene-topology.py -x [Length of the graphene sheet along x in nm] \
                                          -y [Length of the graphene sheet along y in nm] \
                                          -z [Length of the box along z in nm]
                                          -o [Name of the output for both structure and topology] \
