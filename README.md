@@ -17,7 +17,7 @@ Python 3 with packages argparse, math, sys, numpy, MDAnalysis. The requirements 
 
 For generating the structure and topology of a finite graphene sheet, run
  ```python
- python martini3-graphene-topology.py -x [Length of the graphene sheet along x in nm] \
+ python Non-Periodic/martini3-graphene-topology.py -x [Length of the graphene sheet along x in nm] \
                                          -y [Length of the graphene sheet along y in nm] \
                                          -z [Length of the box along z in nm]
                                          -o [Name of the output for both structure and topology] \
@@ -25,13 +25,13 @@ For generating the structure and topology of a finite graphene sheet, run
 
 for example
 
-    python martini3-graphene-topology.py -x 21 -y 23 -z 30 -o graphene
+    python Non-Periodic/martini3-graphene-topology.py -x 21 -y 23 -z 30 -o graphene
 
 All arguments are optional. If an argument is not used, the default value for their dimension (12 nm), and the name of the output (martini_graphene) is used.
 
 Similarly, for generating the structure and topology of an infinite graphene sheet, run
 
-    python martini3-graphene-periodic.py -x [Length of the graphene sheet along x in nm] \
+    python Periodic/martini3-graphene-periodic.py -x [Length of the graphene sheet along x in nm] \
                                          -y [Length of the graphene sheet along y in nm] \
                                          -z [Length of the box along z in nm]
                                          -o [Name of the output for both structure and topology] \
@@ -39,7 +39,7 @@ Similarly, for generating the structure and topology of an infinite graphene she
 
 for example
 
-    python martini3-graphene-periodic.py -x 21 -y 23 -z 30 -o graphene
+    python Periodic/martini3-graphene-periodic.py -x 21 -y 23 -z 30 -o graphene
 
 All arguments are optional. If an argument is not used, the default value for their dimension (12 nm), and the name of the output (martini_graphene) is used.
 
