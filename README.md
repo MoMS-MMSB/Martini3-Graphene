@@ -48,7 +48,7 @@ All arguments are optional. If an argument is not used, the default value for th
 * The repository also contains all the tools required to reproduce the enthalpies of adsorption which is used to validate the model. 
 * Following the parametrization of graphene, we have also developed the Martini 3 model of graphene oxide. The script can be found here.
 
-## Literature
+## Citation
 
 If the script or the model is helpful, please cite:
 
