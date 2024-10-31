@@ -10,12 +10,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--output", type=str, default='martini_graphene',
                     help='Name of the output, default = martini_graphene')
 parser.add_argument("-x", "--xlength", type=float,
-                    help='dimension along x in nm')
+                    help='dimension along x in nm', default = 12.0)
                     
 parser.add_argument("-y", "--ylength", type=float,
-                    help='dimension along y in nm')
+                    help='dimension along y in nm', default = 12.0)
 parser.add_argument("-z", "--zlength", type=float,
-                    help='dimension along z in nm')
+                    help='dimension along z in nm', default = 12.0)
 
 args = parser.parse_args()
 
