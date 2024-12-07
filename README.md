@@ -43,14 +43,10 @@ for example
 
 All arguments are optional. If an argument is not used, the default value for their dimension (12 nm), and the name of the output (martini_graphene) is used.
 
-## Notes
-
-* The repository also contains all the tools required to reproduce the enthalpies of adsorption which is used to validate the model. 
-* Following the parametrization of graphene, we have also developed the Martini 3 model of graphene oxide. The script can be found here.
-
 ## Citation
 
 If the script or the model is helpful, please cite:
+- [1] Shrestha R, Alessandri R, Vögele M, Souza P, Marrink S-J, Monticelli L. Martini 3 coarse-grained models for carbon nanomaterials. ChemRxiv. 2024; doi:10.26434/chemrxiv-2024-6s1wj  This content is a preprint and has not been peer-reviewed.
 
 
 
