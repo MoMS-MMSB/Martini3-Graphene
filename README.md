@@ -1,4 +1,5 @@
 [![DOI](https://zenodo.org/badge/781862015.svg)](https://doi.org/10.5281/zenodo.14825532)
+![MIT License](https://img.shields.io/badge/license-MIT-blue)
 # Martini 3 model of Graphene
 <p align="center">
 <img src="GRA_AA_CG_model.png" width="600">
