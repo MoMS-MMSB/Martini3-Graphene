@@ -45,7 +45,7 @@ for example
 All arguments are optional. If an argument is not used, the default value for their dimension (12 nm), and the name of the output (martini_graphene) is used.
 
 ## License  
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/MoMS-MMSB/Martini3-Graphene/blob/main/LICENSE) file for details.
 
 ## Citation
 
