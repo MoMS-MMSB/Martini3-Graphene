@@ -1,0 +1,9 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: Shrestha
+  given-names: Roshan
+orcid: https://orcid.org/0000-0002-9356-5136
+title:MoMS-MMSB/Martini3-Graphene: M3-Graphene-v1.0.0
+version: version 1.0.0
+date-released: 2025-02-06
