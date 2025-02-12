@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore")
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.lib.distances import calc_angles, calc_bonds, calc_dihedrals
