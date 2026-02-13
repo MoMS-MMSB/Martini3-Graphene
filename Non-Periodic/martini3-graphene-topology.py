@@ -1,11 +1,25 @@
-import warnings
-warnings.filterwarnings("ignore")
 import MDAnalysis as mda
-from MDAnalysis.lib.distances import calc_angles, calc_bonds, calc_dihedrals
+from MDAnalysis.lib.distances import calc_bonds
 import numpy as np
 import argparse
-import math
+import os
+import sys
+from pathlib import Path
 from MDAnalysis import transformations
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from graphene_shared import (
+    Profiler,
+    build_row_groups,
+    collect_hexagons_from_virtual_sites,
+    make_temp_path,
+    resolve_output_paths,
+    unique_bonds_from_template,
+    warn_gro_atom_index_wrap,
+)
 
 # Argument Parser
 parser = argparse.ArgumentParser()
@@ -18,6 +32,27 @@ parser.add_argument("-y", "--ylength", type=float,
                     help='dimension along y in nm', default = 12.0)
 parser.add_argument("-z", "--zlength", type=float,
                     help='dimension along z in nm', default = 12.0)
+parser.add_argument(
+    "--force",
+    action="store_true",
+    help="Overwrite existing output files if they already exist.",
+)
+parser.add_argument(
+    "--output-dir",
+    type=str,
+    default=None,
+    help="Directory where output files are written. Defaults to the path in --output.",
+)
+parser.add_argument(
+    "--quiet",
+    action="store_true",
+    help="Suppress non-essential stderr output.",
+)
+parser.add_argument(
+    "--profile",
+    action="store_true",
+    help="Print stage timing information to stderr.",
+)
 
 args = parser.parse_args()
 
@@ -26,21 +61,36 @@ xlength = args.xlength
 ylength = args.ylength
 zlength = args.zlength
 
-rows = int(round(ylength/0.2217))
-raw_columns = int(round(xlength/0.256))
-if (rows >=3) and (rows % 2 != 0):
-    rows = rows
-else:
-    rows = rows +1
+if xlength <= 0 or ylength <= 0 or zlength <= 0:
+    parser.error("xlength, ylength, and zlength must be positive numbers.")
 
-if (raw_columns % 3 == 0):
-    columns = raw_columns - 1
-else:
-    n = 0
-    while (raw_columns % 3 != 0):
-        raw_columns = raw_columns +1
-        n = n +1
-    columns = raw_columns - 1
+profiler = Profiler(args.profile)
+
+gro_path, itp_path = resolve_output_paths(output=output, output_dir=args.output_dir)
+tmp_gro_path = make_temp_path(gro_path)
+tmp_itp_path = make_temp_path(itp_path)
+
+if not args.force:
+    existing_outputs = [str(p) for p in (gro_path, itp_path) if p.exists()]
+    if existing_outputs:
+        parser.error(
+            "Refusing to overwrite existing output file(s): "
+            + ", ".join(existing_outputs)
+            + ". Use --force to overwrite."
+        )
+
+rows = max(3, int(round(ylength / 0.2217)))
+if rows % 2 == 0:
+    rows += 1
+
+raw_columns = max(3, int(round(xlength / 0.256)))
+while raw_columns % 3 != 0:
+    raw_columns += 1
+columns = raw_columns - 1
+
+BOND_TEMPLATE = ((0, 1), (0, 2), (2, 4), (4, 5), (5, 3), (1, 3))
+SHORT_BOND_TEMPLATE = ((0, 4), (1, 5), (1, 2), (3, 4), (0, 3), (2, 5))
+LONG_BOND_TEMPLATE = ((2, 3), (0, 5), (1, 4))
 
 
 #----------------#
@@ -81,14 +131,19 @@ for i in range(rows):
 
         dist += 2.217  # Going 2.13 Angstroms down/up along y
 
+profiler.mark("built positions")
+
 
 # Creating an empty Universe with atoms, and trajectory is True for writing positions
 w = mda.Universe.empty(n_atoms=len(positions), trajectory=True)
 w.atoms.positions = positions
 w.add_TopologyAttr('names')
-w.atoms.names = [f'B{i}' for i in range(1, w.atoms.n_atoms+1)]
+w.atoms.names = ['B'] * w.atoms.n_atoms
 w.add_TopologyAttr('resnames')
 w.residues.resnames = ['GRA']
+w.add_TopologyAttr('resids')
+w.residues.resids = [1]
+warn_gro_atom_index_wrap(w.atoms.n_atoms, args.quiet)
 d = np.unique(w.atoms.positions[:,1])
 x_atom1 = w.atoms[w.atoms.positions[:,1] == d[1]][0]
 x_atom2 = w.atoms[w.atoms.positions[:,1] == d[1]][-1]
@@ -99,14 +154,14 @@ w.trajectory.add_transformations(transformations.boxdimensions.set_dimensions(di
 dim = w.trajectory.ts.triclinic_dimensions
 box_center = np.sum(dim, axis = 0)/2
 w.atoms.translate(box_center - w.atoms.select_atoms('resname GRA').center_of_geometry())
-w.atoms.write(output+'.gro')
+w.atoms.write(str(tmp_gro_path))
+profiler.mark("wrote temporary .gro")
 
-w.atoms.write(output+'.gro')
 
-
-u = mda.Universe(output+'.gro')
+u = mda.Universe(str(tmp_gro_path))
 # finding the unique y-coordinate so that we can loop through each row of atoms
 c = np.unique(u.atoms.positions[:, 1])
+row_groups = build_row_groups(u, c)
 u.atoms.masses = 36    # Since it's a TC5 bead, we use a mass of 36 for each
 
 
@@ -117,15 +172,14 @@ Identifying the indices of the virtual sites, and setting their mass to zero
 
 for j in range(len(c)):  # Looping through each row, defined by the y-coordinate
     if (j != 0) and (j != len(c)-1):
+        group = row_groups[j]
         if j % 2 != 0:
-            group = u.atoms[u.atoms.positions[:, 1] == c[j]]
             gr = np.arange(1, len(group), 3)
 
             for k in gr:
                 u.atoms[group[k].index].mass = 0
 
         else:
-            group = u.atoms[u.atoms.positions[:, 1] == c[j]]
             gr = np.arange(2, len(group), 3)
             for k in gr:
                 u.atoms[group[k].index].mass = 0
@@ -134,16 +188,8 @@ for j in range(len(c)):  # Looping through each row, defined by the y-coordinate
 def hexagon(universe):
     ''' returns the list with index for the virtual site, the corresponding indices for hexagon '''
 
-    b = u.atoms[u.atoms.masses == 0].indices
-    hexagon_indices = []
-    for i in b:
-        empty = []
-        for j in u.atoms.indices:
-            if (2.55 <= calc_bonds(u.atoms[j].position, u.atoms[i].position) <= 2.57):
-                empty.append(j)
-        empty.append(i)
-        hexagon_indices.append(empty)
-    return hexagon_indices
+    b = universe.atoms[universe.atoms.masses == 0].indices
+    return collect_hexagons_from_virtual_sites(universe, b)
 
 vs = hexagon(u) # list of virtual site, and the corresponding hexagon indices
 hexagons = [hex[:-1] for hex in vs] # List of hexagon indices
@@ -161,29 +207,7 @@ v_site = np.array(virtual_sites(vs)) + 1 # numpy array for exclusions, and virtu
 
 
 def bonds(hexagons):
-    bonds = []
-    for hex in hexagons:
-        bond1 = sorted([hex[0], hex[1]])
-        bond2 = sorted([hex[0], hex[2]])
-        bond3 = sorted([hex[2], hex[4]])
-        bond4 = sorted([hex[4], hex[5]])
-        bond5 = sorted([hex[5], hex[3]])
-        bond6 = sorted([hex[1], hex[3]])
-
-        if bond1 not in bonds:
-            bonds.append(bond1)
-        if bond2 not in bonds:
-            bonds.append(bond2)
-        if bond3 not in bonds:
-            bonds.append(bond3)
-        if bond4 not in bonds:
-            bonds.append(bond4)
-        if bond5 not in bonds:
-            bonds.append(bond5)
-        if bond6 not in bonds:
-            bonds.append(bond6)
-
-    return bonds
+    return unique_bonds_from_template(hexagons, BOND_TEMPLATE)
 
 
 """
@@ -204,45 +228,11 @@ def add_bonds(hexagons):
 
 
 def add_bonds(hexagons):
-    bonds = []
-    for hex in hexagons:
-        bond1 = sorted([hex[0], hex[4]])
-        bond2 = sorted([hex[1], hex[5]])
-        bond3 = sorted([hex[1], hex[2]])
-        bond4 = sorted([hex[3], hex[4]])
-        bond5 = sorted([hex[0], hex[3]])
-        bond6 = sorted([hex[2], hex[5]])
-
-        if bond1 not in bonds:
-            bonds.append(bond1)
-        if bond2 not in bonds:
-            bonds.append(bond2)
-        if bond3 not in bonds:
-            bonds.append(bond3)
-        if bond4 not in bonds:
-            bonds.append(bond4)
-        if bond5 not in bonds:
-            bonds.append(bond5)
-        if bond6 not in bonds:
-            bonds.append(bond6)
-
-    return bonds
+    return unique_bonds_from_template(hexagons, SHORT_BOND_TEMPLATE)
 
 
 def long_bond(hexagons):
-    bonds = []
-    for hex in hexagons:
-        bond1 = sorted([hex[2], hex[3]])
-        bond2 = sorted([hex[0], hex[5]])
-        bond3 = sorted([hex[1], hex[4]])
-
-        if bond1 not in bonds:
-            bonds.append(bond1)
-        if bond2 not in bonds:
-            bonds.append(bond2)
-        if bond3 not in bonds:
-            bonds.append(bond3)
-    return bonds
+    return unique_bonds_from_template(hexagons, LONG_BOND_TEMPLATE)
     
 
 
@@ -300,7 +290,7 @@ def get_between_hexagons_angles(hexagons, beads_per_row):
         return common
 
     angles = []
-    treated_side = []
+    treated_side = set()
     gap_for_after = int(beads_per_row / 3)
     gap_for_below = int(beads_per_row / 3) + int(beads_per_row/3 - 1)
     gap_for_before = int(beads_per_row / 3) - 1
@@ -334,7 +324,7 @@ def get_between_hexagons_angles(hexagons, beads_per_row):
                 idx2 = hexa_after.index(side_after[1])
                 side = (side_after[0], side_after[1])
                 if side not in treated_side:
-                    treated_side.append(side)
+                    treated_side.add(side)
                     angle = [hexa[idx1 - 2], side_after[0],
                              side_after[1], hexa_after[idx2 + 2]]
                     angles.append(angle)
@@ -346,7 +336,7 @@ def get_between_hexagons_angles(hexagons, beads_per_row):
                 idx2 = hexa_below.index(side_below[1])
                 side = (side_below[0], side_below[1])
                 if side not in treated_side:
-                    treated_side.append(side)
+                    treated_side.add(side)
                     angle = [hexa[idx1 - 4], side_below[0],
                              side_below[1], hexa_below[idx2 + 4]]
                     angles.append(angle)
@@ -358,7 +348,7 @@ def get_between_hexagons_angles(hexagons, beads_per_row):
                 idx2 = hexa_before.index(side_before[1])
                 side = (side_before[0], side_before[1])
                 if side not in treated_side:
-                    treated_side.append(side)
+                    treated_side.add(side)
                     angle = [hexa[idx1 - 2], side_before[0],
                              side_before[1], hexa_before[idx2 + 2]]
                     angles.append(angle)
@@ -369,6 +359,7 @@ def get_between_hexagons_angles(hexagons, beads_per_row):
 impropers = np.vstack(
     (get_angles(hexagons), get_between_hexagons_angles(hexagons, int(raw_columns))))
 impropers = impropers + 1
+profiler.mark("built topology terms")
 
 
 #---------------#
@@ -376,90 +367,77 @@ impropers = impropers + 1
 #---------------#
 
 
-# Open the file for writing
-
-topology_file = open(output+".itp", 'w')
-
-# Variables
-
-
-# Header
-
-topology_file.write(
-    "; \n;  Graphene topology\n; for the Martini3 force field\n;\n; created by martini3-graphene-topology.py\n;\n")
-topology_file.write("; Roshan Shrestha\n; CNRS\n;\n\n")
-
-topology_file.write("[ moleculetype ]\n")
-topology_file.write("; molname	 nrexcl\n")
-topology_file.write("  GRA           1")
-
-
-# Atoms
-
-topology_file.write("\n[ atoms ]\n")
-topology_file.write("; nr	 type	 resnr	 residue	 atom	 cgnr	 charge	 mass\n")
-for i in range(1, u.atoms.n_atoms+1):
+with open(tmp_itp_path, "w") as topology_file:
     topology_file.write(
-        f"  {i:<5}     TC5     0     GRA     B{i:<5}     {i:<5}     0     {(u.atoms[i-1].mass):.2f}\n")
-"""
-# constraints
-topology_file.write("\n[ constraints ]\n")
-for i in constraints(hexagons):
-    topology_file.write(
-        f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4919\n")
-"""
+        "; \n; Graphene topology\n; for the Martini3 force field\n;\n"
+    )
+    topology_file.write("; Roshan Shrestha\n; CNRS\n;\n\n")
 
-# Bonds
+    topology_file.write("[ moleculetype ]\n")
+    topology_file.write("; molname	 nrexcl\n")
+    topology_file.write("  GRA           1")
 
-topology_file.write("\n[ bonds ]\n")
-topology_file.write("; i	 j	  funct	 length	 kb\n")
-for i in bonds(hexagons):
-    topology_file.write(
-        f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.24595     30000\n")
+    topology_file.write("\n[ atoms ]\n")
+    topology_file.write("; nr	 type	 resnr	 residue	 atom	 cgnr	 charge	 mass\n")
+    for i in range(1, u.atoms.n_atoms + 1):
+        topology_file.write(
+            f"  {i:<5}     TC5     0     GRA     B{i:<5}     {i:<5}     0     {(u.atoms[i-1].mass):.2f}\n"
+        )
+    """
+    # constraints
+    topology_file.write("\n[ constraints ]\n")
+    for i in constraints(hexagons):
+        topology_file.write(
+            f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4919\n")
+    """
 
+    topology_file.write("\n[ bonds ]\n")
+    topology_file.write("; i	 j	  funct	 length	 kb\n")
+    for i in bonds(hexagons):
+        topology_file.write(
+            f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.24595     30000\n"
+        )
 
+    topology_file.write("; short_bonds_across\n")
+    for i in add_bonds(hexagons):
+        topology_file.write(
+            f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4260     30000\n"
+        )
 
-topology_file.write("; short_bonds_across\n")
-for i in add_bonds(hexagons):
-    topology_file.write(
-        f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4260     30000\n")
+    topology_file.write("; long_bonds_across\n")
+    for i in long_bond(hexagons):
+        topology_file.write(
+            f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4919     30000\n"
+        )
 
-topology_file.write("; long_bonds_across\n")
-for i in long_bond(hexagons):
-    topology_file.write(
-        f"  {i[0]+1:<3}     {i[1]+1:<3}     1    0.4919     30000\n")
+    topology_file.write("\n[ angles ]\n")
+    topology_file.write("; i	 j	 k	 funct	 angle	 force_k\n")
+    for i in find_angles(hexagons):
+        topology_file.write(
+            f"{i[0]+1:<3}     {i[1]+1:<3}     {i[2]+1:<3}     1    120     300\n"
+        )
 
+    topology_file.write("\n[ dihedrals ]\n")
+    topology_file.write("; i	 j	 k	 l     funct	 ref.angle     force_k\n")
+    for i in impropers:
+        topology_file.write(
+            f"  {i[0]:<3}     {i[1]:<3}     {i[2]:<3}     {i[3]:<3}    2     180     200\n"
+        )
 
-# Angles
+    topology_file.write("\n[ virtual_sitesn ]\n")
+    topology_file.write("; site	 funct	 constructing atom indices\n")
+    for i in v_site:
+        topology_file.write(
+            f"  {i[0]:<3}     1     {i[1]:<3}     {i[2]:<3}     {i[3]:<3}    {i[4]:<3}\n"
+        )
 
-topology_file.write("\n[ angles ]\n")
-topology_file.write("; i	 j	 k	 funct	 angle	 force_k\n")
-for i in find_angles(hexagons):
-    topology_file.write(
-        f"{i[0]+1:<3}     {i[1]+1:<3}     {i[2]+1:<3}     1    120     300\n")
+    topology_file.write("\n[ exclusions ]\n")
+    for i in vs:
+        topology_file.write(
+            f"{i[-1]+1:<3}     {i[0]+1:<3}     {i[1]+1:<3}     {i[2]+1:<3}    {i[3]+1:<3}     {i[4]+1:<3}     {i[5]+1:<3}\n"
+        )
 
-
-# Improper Dihedrals
-
-topology_file.write("\n[ dihedrals ]\n")
-topology_file.write("; i	 j	 k	 l     funct	 ref.angle     force_k\n")
-for i in impropers:
-    topology_file.write(
-        f"  {i[0]:<3}     {i[1]:<3}     {i[2]:<3}     {i[3]:<3}    2     180     200\n")
-
-
-# Virtual sites
-
-topology_file.write("\n[ virtual_sitesn ]\n")
-topology_file.write("; site	 funct	 constructing atom indices\n")
-for i in v_site:
-    topology_file.write(
-        f"  {i[0]:<3}     1     {i[1]:<3}     {i[2]:<3}     {i[3]:<3}    {i[4]:<3}\n")
-
-# Exclusions
-topology_file.write("\n[ exclusions ]\n")
-for i in vs:
-    topology_file.write(
-        f"{i[-1]+1:<3}     {i[0]+1:<3}     {i[1]+1:<3}     {i[2]+1:<3}    {i[3]+1:<3}     {i[4]+1:<3}     {i[5]+1:<3}\n")
-
-topology_file.close()
+profiler.mark("wrote temporary .itp")
+os.replace(tmp_gro_path, gro_path)
+os.replace(tmp_itp_path, itp_path)
+profiler.mark("finalized outputs")
