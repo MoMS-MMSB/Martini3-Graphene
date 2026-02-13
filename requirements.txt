@@ -1,2 +1,2 @@
 MDAnalysis==2.0.0
-numpy>=1.21.0
+numpy>=1.21.0,<2
