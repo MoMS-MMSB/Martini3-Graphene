@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.1] - 2026-02-14
+
+- Updated `CITATION.cff` to use version `1.1.1`.
+- Switched `CITATION.cff` DOI to concept DOI `10.5281/zenodo.14825532` for Zenodo release compatibility.
+
 ## [1.1.0] - 2026-02-14
 
 - Added shared generator utilities in `graphene_shared.py` used by both scripts.
