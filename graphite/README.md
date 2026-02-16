@@ -2,7 +2,7 @@
 
 
 
-The script automates the three graphite steps described in :
+The script automates the construction of a graphitic slab by stacking multiple graphene layers along the z direction in these steps :
 
 1. Build periodic graphene (`martini3-graphene-periodic.py`)
 2. Set the one-layer box height to `0.382 nm`
@@ -34,6 +34,7 @@ With default names, the script writes:
 - `graphite.gro` (stacked slab)
 - `graphite.pdb` (stacked slab for visualization)
 - `posre_GRA.itp` (position restraints for one graphene layer)
+- `topol.top` (default topology with Martini + graphene includes and `GRA <layers>`)
 
 To use the stacked slab in a system topology, include `graphene.itp` and set:
 

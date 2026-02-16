@@ -68,6 +68,7 @@ This writes:
 - `graphene.gro`, `graphene.itp`, `graphene_1layer.gro`
 - `graphite.gro`, `graphite.pdb`
 - `posre_GRA.itp` and appends a `POSRES` include block to `graphene.itp`
+- `topol.top` with default Martini + graphene includes and `GRA <layers>`
 
 See `graphite/README.md` for details.
 

@@ -55,6 +55,7 @@ class GraphiteBuilderTests(unittest.TestCase):
             graphite_gro = Path(tmp_dir) / "graphite_test.gro"
             graphite_pdb = Path(tmp_dir) / "graphite_test.pdb"
             posre_itp = Path(tmp_dir) / "posre_GRA.itp"
+            topol_top = Path(tmp_dir) / "topol.top"
 
             for path in (
                 graphene_gro,
@@ -63,6 +64,7 @@ class GraphiteBuilderTests(unittest.TestCase):
                 graphite_gro,
                 graphite_pdb,
                 posre_itp,
+                topol_top,
             ):
                 self.assertTrue(path.exists(), msg=f"Missing {path}")
 
@@ -84,6 +86,11 @@ class GraphiteBuilderTests(unittest.TestCase):
                 if line.strip() and not line.strip().startswith(";") and not line.strip().startswith("[")
             ]
             self.assertEqual(len(posre_entries), single_layer_atoms)
+
+            topol_text = topol_top.read_text()
+            self.assertIn('#include "martini_v3.0.0.itp"', topol_text)
+            self.assertIn('#include "graphene.itp"', topol_text)
+            self.assertIn(f"GRA        {layers}", topol_text)
 
     def test_overwrite_requires_force(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
