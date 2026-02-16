@@ -59,7 +59,7 @@ Example (overwrite existing files in a custom directory):
     python Periodic/martini3-graphene-periodic.py -x 100 -y 100 -z 30 -o graphene --output-dir results --force
 
 ## Graphitic Surface (Stacked Graphene)
-To build a graphitic slab following the workflow from the THEMOSIA 2026 interfaces hands-on:
+To build a graphitic slab :
 
     python graphite/build_graphite_slab.py -x 10 -y 10 --layers 5 -o graphite
 
