@@ -58,6 +58,19 @@ Example (overwrite existing files in a custom directory):
 
     python Periodic/martini3-graphene-periodic.py -x 100 -y 100 -z 30 -o graphene --output-dir results --force
 
+## Graphitic Surface (Stacked Graphene)
+To build a graphitic slab following the workflow from the THEMOSIA 2026 interfaces hands-on:
+
+    python graphite/build_graphite_slab.py -x 10 -y 10 --layers 5 -o graphite
+
+This writes:
+
+- `graphene.gro`, `graphene.itp`, `graphene_1layer.gro`
+- `graphite.gro`, `graphite.pdb`
+- `posre_GRA.itp` and appends a `POSRES` include block to `graphene.itp`
+
+See `graphite/README.md` for details.
+
 ## Notes
 - GRO atom indices are limited to 5 digits by the file format. For systems with more than 99,999 atoms, indices wrap around.
 - The two generator scripts share internal utility code from `graphene_shared.py`.

@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""Build a stacked graphite slab from the periodic graphene Martini 3 model.
+
+
+Pipeline:
+1. Generate a periodic single graphene layer with martini3-graphene-periodic.py
+2. Redefine the graphene box height to one interlayer spacing
+3. Stack N graphene layers along z to form a graphite slab
+4. Generate position restraints for one graphene layer and include them in graphene.itp
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import MDAnalysis as mda
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from graphene_shared import Profiler, make_temp_path
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build a graphitic slab by stacking periodic graphene layers."
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default="graphite",
+        help="Output prefix for stacked slab files (default: graphite).",
+    )
+    parser.add_argument(
+        "-x",
+        "--xlength",
+        type=float,
+        default=10.0,
+        help="Target graphene length along x in nm (default: 10.0).",
+    )
+    parser.add_argument(
+        "-y",
+        "--ylength",
+        type=float,
+        default=10.0,
+        help="Target graphene length along y in nm (default: 10.0).",
+    )
+    parser.add_argument(
+        "--layers",
+        type=int,
+        default=5,
+        help="Number of graphene layers to stack along z (default: 5).",
+    )
+    parser.add_argument(
+        "--spacing",
+        type=float,
+        default=0.382,
+        help="Interlayer spacing in nm (default: 0.382).",
+    )
+    parser.add_argument(
+        "--graphene-prefix",
+        type=str,
+        default="graphene",
+        help="Prefix for single-layer graphene outputs (default: graphene).",
+    )
+    parser.add_argument(
+        "--posre-fc",
+        type=float,
+        default=1000.0,
+        help="Position restraint force constant in kJ mol^-1 nm^-2 (default: 1000).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory where output files are written. Defaults to the current directory.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing output files if they already exist.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress non-essential stderr output.",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print stage timing information to stderr.",
+    )
+    args = parser.parse_args()
+
+    if args.xlength <= 0 or args.ylength <= 0:
+        parser.error("xlength and ylength must be positive numbers.")
+    if args.layers <= 0:
+        parser.error("layers must be a positive integer.")
+    if args.spacing <= 0:
+        parser.error("spacing must be a positive number.")
+    if args.posre_fc < 0:
+        parser.error("posre-fc must be non-negative.")
+
+    return parser, args
+
+
+def maybe_log(message, quiet):
+    if not quiet:
+        print(message, file=sys.stderr)
+
+
+def write_posre_file(path, n_atoms, force_constant):
+    tmp_path = make_temp_path(path)
+    with open(tmp_path, "w") as handle:
+        handle.write("[ position_restraints ]\n")
+        handle.write("; i    funct    fcx      fcy      fcz\n")
+        for atom_index in range(1, n_atoms + 1):
+            handle.write(
+                f"{atom_index:6d}  1  {force_constant:8.1f}  {force_constant:8.1f}  {force_constant:8.1f}\n"
+            )
+    os.replace(tmp_path, path)
+
+
+def ensure_posre_include_in_itp(itp_path, posre_filename):
+    include_line = f'#include "{posre_filename}"'
+    text = itp_path.read_text()
+    if include_line in text:
+        return
+
+    include_block = (
+        "\n; ---- Position restraints for graphene (GRA) ----\n"
+        "#ifdef POSRES\n"
+        f'{include_line}\n'
+        "#endif\n"
+    )
+    if not text.endswith("\n"):
+        text += "\n"
+    text += include_block
+
+    tmp_path = make_temp_path(itp_path)
+    tmp_path.write_text(text)
+    os.replace(tmp_path, itp_path)
+
+
+def main():
+    parser, args = parse_args()
+    profiler = Profiler(args.profile)
+
+    output_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    graphene_gro = output_dir / f"{args.graphene_prefix}.gro"
+    graphene_itp = output_dir / f"{args.graphene_prefix}.itp"
+    graphene_layer_gro = output_dir / f"{args.graphene_prefix}_1layer.gro"
+    graphite_gro = output_dir / f"{args.output}.gro"
+    graphite_pdb = output_dir / f"{args.output}.pdb"
+    posre_itp = output_dir / "posre_GRA.itp"
+
+    expected_outputs = (
+        graphene_gro,
+        graphene_itp,
+        graphene_layer_gro,
+        graphite_gro,
+        graphite_pdb,
+        posre_itp,
+    )
+    if not args.force:
+        existing = [str(path) for path in expected_outputs if path.exists()]
+        if existing:
+            parser.error(
+                "Refusing to overwrite existing output file(s): "
+                + ", ".join(existing)
+                + ". Use --force to overwrite."
+            )
+
+    periodic_script = REPO_ROOT / "Periodic" / "martini3-graphene-periodic.py"
+    if not periodic_script.exists():
+        parser.error(f"Required script not found: {periodic_script}")
+
+    maybe_log("Generating periodic single-layer graphene...", args.quiet)
+    cmd = [
+        sys.executable,
+        str(periodic_script),
+        "-x",
+        str(args.xlength),
+        "-y",
+        str(args.ylength),
+        "-z",
+        str(args.spacing),
+        "-o",
+        args.graphene_prefix,
+        "--output-dir",
+        str(output_dir),
+    ]
+    if args.force:
+        cmd.append("--force")
+    if args.quiet:
+        cmd.append("--quiet")
+    if args.profile:
+        cmd.append("--profile")
+
+    result = subprocess.run(cmd, cwd=str(REPO_ROOT), check=False)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+    profiler.mark("generated graphene layer")
+
+    one_layer = mda.Universe(str(graphene_gro))
+    spacing_angstrom = args.spacing * 10.0
+    one_layer.dimensions = np.array(
+        [
+            one_layer.dimensions[0],
+            one_layer.dimensions[1],
+            spacing_angstrom,
+            90.0,
+            90.0,
+            90.0,
+        ],
+        dtype=np.float32,
+    )
+    tmp_layer_gro = make_temp_path(graphene_layer_gro)
+    one_layer.atoms.write(str(tmp_layer_gro))
+    os.replace(tmp_layer_gro, graphene_layer_gro)
+    profiler.mark("wrote one-layer graphene box")
+
+    layer = mda.Universe(str(graphene_layer_gro))
+    layer_positions = layer.atoms.positions.copy()
+    offsets = np.array([[0.0, 0.0, i * spacing_angstrom] for i in range(args.layers)], dtype=np.float32)
+    all_positions = np.concatenate([layer_positions + offset for offset in offsets], axis=0)
+
+    stacked = mda.Merge(*([layer.atoms] * args.layers))
+    stacked.atoms.positions = all_positions
+    stacked.dimensions = np.array(
+        [
+            layer.dimensions[0],
+            layer.dimensions[1],
+            spacing_angstrom * args.layers,
+            90.0,
+            90.0,
+            90.0,
+        ],
+        dtype=np.float32,
+    )
+
+    tmp_graphite_gro = make_temp_path(graphite_gro)
+    tmp_graphite_pdb = make_temp_path(graphite_pdb)
+    stacked.atoms.write(str(tmp_graphite_gro))
+    stacked.atoms.write(str(tmp_graphite_pdb))
+    os.replace(tmp_graphite_gro, graphite_gro)
+    os.replace(tmp_graphite_pdb, graphite_pdb)
+    profiler.mark("stacked graphite slab")
+
+    write_posre_file(posre_itp, layer.atoms.n_atoms, args.posre_fc)
+    ensure_posre_include_in_itp(graphene_itp, posre_itp.name)
+    profiler.mark("generated position restraints")
+
+    maybe_log(f"Wrote {graphene_gro}", args.quiet)
+    maybe_log(f"Wrote {graphene_itp}", args.quiet)
+    maybe_log(f"Wrote {graphene_layer_gro}", args.quiet)
+    maybe_log(f"Wrote {graphite_gro}", args.quiet)
+    maybe_log(f"Wrote {graphite_pdb}", args.quiet)
+    maybe_log(f"Wrote {posre_itp}", args.quiet)
+
+
+if __name__ == "__main__":
+    main()
